@@ -512,4 +512,19 @@ export const templates: TemplateData[] = [
 		tags: ["self-hosted", "email", "webmail"],
 		load: () => import("./roundcube/index").then((m) => m.generate),
 	},
+	{
+		id: "Flowise",
+		name: "Flowise",
+		version: "2.1.2",
+		description:
+			"Flowise is an open source low-code platform for Drag & drop UI to build your customized LLM flow.",
+		logo: "flowise.png",
+		links: {
+			github: "https://github.com/FlowiseAI/Flowise",
+			website: "https://flowiseai.com/",
+			docs: "https://docs.flowiseai.com/",
+		},
+		tags: ["chat"],
+		load: () => import("./flowise/index").then((m) => m.generate),
+	},
 ];
