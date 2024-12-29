@@ -1,4 +1,4 @@
-import type { InferResultType } from "@/server/types/with";
+import type { InferResultType } from "@dokploy/server/types/with";
 import type { CreateServiceOptions } from "dockerode";
 import {
 	calculateResources,
@@ -9,7 +9,10 @@ import {
 } from "../docker/utils";
 import { getRemoteDocker } from "../servers/remote-docker";
 
-export type MariadbNested = InferResultType<"mariadb", { mounts: true }>;
+export type MariadbNested = InferResultType<
+	"mariadb",
+	{ mounts: true; project: true }
+>;
 export const buildMariadb = async (mariadb: MariadbNested) => {
 	const {
 		appName,
@@ -37,7 +40,10 @@ export const buildMariadb = async (mariadb: MariadbNested) => {
 		cpuLimit,
 		cpuReservation,
 	});
-	const envVariables = prepareEnvironmentVariables(defaultMariadbEnv);
+	const envVariables = prepareEnvironmentVariables(
+		defaultMariadbEnv,
+		mariadb.project.env,
+	);
 	const volumesMount = generateVolumeMounts(mounts);
 	const bindsMount = generateBindMounts(mounts);
 	const filesMount = generateFileMounts(appName, mariadb);

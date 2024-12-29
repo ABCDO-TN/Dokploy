@@ -1,9 +1,9 @@
 import fs, { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { paths } from "@/server/constants";
-import type { Compose } from "@/server/services/compose";
-import type { Domain } from "@/server/services/domain";
+import { paths } from "@dokploy/server/constants";
+import type { Compose } from "@dokploy/server/services/compose";
+import type { Domain } from "@dokploy/server/services/domain";
 import { dump, load } from "js-yaml";
 import { execAsyncRemote } from "../process/execAsync";
 import {
@@ -259,10 +259,10 @@ export const createDomainLabels = async (
 	domain: Domain,
 	entrypoint: "web" | "websecure",
 ) => {
-	const { host, port, https, uniqueConfigKey, certificateType } = domain;
+	const { host, port, https, uniqueConfigKey, certificateType, path } = domain;
 	const routerName = `${appName}-${uniqueConfigKey}-${entrypoint}`;
 	const labels = [
-		`traefik.http.routers.${routerName}.rule=Host(\`${host}\`)`,
+		`traefik.http.routers.${routerName}.rule=Host(\`${host}\`)${path && path !== "/" ? ` && PathPrefix(\`${path}\`)` : ""}`,
 		`traefik.http.routers.${routerName}.entrypoints=${entrypoint}`,
 		`traefik.http.services.${routerName}.loadbalancer.server.port=${port}`,
 		`traefik.http.routers.${routerName}.service=${routerName}`,

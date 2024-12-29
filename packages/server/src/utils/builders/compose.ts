@@ -5,8 +5,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { paths } from "@/server/constants";
-import type { InferResultType } from "@/server/types/with";
+import { paths } from "@dokploy/server/constants";
+import type { InferResultType } from "@dokploy/server/types/with";
 import boxen from "boxen";
 import {
 	writeDomainsToCompose,
@@ -48,6 +48,7 @@ Compose Type: ${composeType} ✅`;
 		writeStream.write(`\n${logBox}\n`);
 
 		const projectPath = join(COMPOSE_PATH, compose.appName, "code");
+
 		await spawnAsync(
 			"docker",
 			[...command.split(" ")],
@@ -67,7 +68,7 @@ Compose Type: ${composeType} ✅`;
 
 		writeStream.write("Docker Compose Deployed: ✅");
 	} catch (error) {
-		writeStream.write("Error ❌");
+		writeStream.write(`Error ❌ ${(error as Error).message}`);
 		throw error;
 	} finally {
 		writeStream.end();
@@ -144,6 +145,10 @@ const sanitizeCommand = (command: string) => {
 export const createCommand = (compose: ComposeNested) => {
 	const { composeType, appName, sourceType } = compose;
 
+	if (compose.command) {
+		return `${sanitizeCommand(compose.command)}`;
+	}
+
 	const path =
 		sourceType === "raw" ? "docker-compose.yml" : compose.composePath;
 	let command = "";
@@ -152,12 +157,6 @@ export const createCommand = (compose: ComposeNested) => {
 		command = `compose -p ${appName} -f ${path} up -d --build --remove-orphans`;
 	} else if (composeType === "stack") {
 		command = `stack deploy -c ${path} ${appName} --prune`;
-	}
-
-	const customCommand = sanitizeCommand(compose.command);
-
-	if (customCommand) {
-		command = `${command} ${customCommand}`;
 	}
 
 	return command;
@@ -180,7 +179,10 @@ const createEnvFile = (compose: ComposeNested) => {
 		envContent += `\nCOMPOSE_PREFIX=${compose.suffix}`;
 	}
 
-	const envFileContent = prepareEnvironmentVariables(envContent).join("\n");
+	const envFileContent = prepareEnvironmentVariables(
+		envContent,
+		compose.project.env,
+	).join("\n");
 
 	if (!existsSync(dirname(envFilePath))) {
 		mkdirSync(dirname(envFilePath), { recursive: true });
@@ -206,7 +208,10 @@ export const getCreateEnvFileCommand = (compose: ComposeNested) => {
 		envContent += `\nCOMPOSE_PREFIX=${compose.suffix}`;
 	}
 
-	const envFileContent = prepareEnvironmentVariables(envContent).join("\n");
+	const envFileContent = prepareEnvironmentVariables(
+		envContent,
+		compose.project.env,
+	).join("\n");
 
 	const encodedContent = encodeBase64(envFileContent);
 	return `

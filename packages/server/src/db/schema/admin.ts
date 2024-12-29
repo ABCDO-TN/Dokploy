@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { boolean, pgTable, text } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, text } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -28,6 +28,9 @@ export const admins = pgTable("admin", {
 	createdAt: text("createdAt")
 		.notNull()
 		.$defaultFn(() => new Date().toISOString()),
+	stripeCustomerId: text("stripeCustomerId"),
+	stripeSubscriptionId: text("stripeSubscriptionId"),
+	serversQuantity: integer("serversQuantity").notNull().default(0),
 });
 
 export const adminsRelations = relations(admins, ({ one, many }) => ({
@@ -49,6 +52,8 @@ const createSchema = createInsertSchema(admins, {
 	serverIp: z.string().optional(),
 	letsEncryptEmail: z.string().optional(),
 });
+
+export const apiUpdateAdmin = createSchema.partial();
 
 export const apiSaveSSHKey = createSchema
 	.pick({

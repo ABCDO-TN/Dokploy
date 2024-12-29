@@ -1,4 +1,4 @@
-import { db } from "@/server/db";
+import { db } from "@dokploy/server/db";
 import {
 	type apiCreateDiscord,
 	type apiCreateEmail,
@@ -13,7 +13,7 @@ import {
 	notifications,
 	slack,
 	telegram,
-} from "@/server/db/schema";
+} from "@dokploy/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 
@@ -204,6 +204,7 @@ export const createDiscordNotification = async (
 			.insert(discord)
 			.values({
 				webhookUrl: input.webhookUrl,
+				decoration: input.decoration,
 			})
 			.returning()
 			.then((value) => value[0]);
@@ -272,6 +273,7 @@ export const updateDiscordNotification = async (
 			.update(discord)
 			.set({
 				webhookUrl: input.webhookUrl,
+				decoration: input.decoration,
 			})
 			.where(eq(discord.discordId, input.discordId))
 			.returning()

@@ -1,60 +1,76 @@
-import { docker } from "@/server/constants";
-import { db } from "@/server/db";
-import { type apiCreateApplication, applications } from "@/server/db/schema";
-import { generateAppName } from "@/server/db/schema";
-import { getAdvancedStats } from "@/server/monitoring/utilts";
-import { generatePassword } from "@/server/templates/utils";
+import { docker } from "@dokploy/server/constants";
+import { db } from "@dokploy/server/db";
+import {
+	type apiCreateApplication,
+	applications,
+	buildAppName,
+	cleanAppName,
+} from "@dokploy/server/db/schema";
+import { getAdvancedStats } from "@dokploy/server/monitoring/utilts";
 import {
 	buildApplication,
 	getBuildCommand,
 	mechanizeDockerContainer,
-} from "@/server/utils/builders";
-import { sendBuildErrorNotifications } from "@/server/utils/notifications/build-error";
-import { sendBuildSuccessNotifications } from "@/server/utils/notifications/build-success";
-import { execAsyncRemote } from "@/server/utils/process/execAsync";
+} from "@dokploy/server/utils/builders";
+import { sendBuildErrorNotifications } from "@dokploy/server/utils/notifications/build-error";
+import { sendBuildSuccessNotifications } from "@dokploy/server/utils/notifications/build-success";
+import { execAsyncRemote } from "@dokploy/server/utils/process/execAsync";
 import {
 	cloneBitbucketRepository,
 	getBitbucketCloneCommand,
-} from "@/server/utils/providers/bitbucket";
+} from "@dokploy/server/utils/providers/bitbucket";
 import {
 	buildDocker,
 	buildRemoteDocker,
-} from "@/server/utils/providers/docker";
+} from "@dokploy/server/utils/providers/docker";
 import {
 	cloneGitRepository,
 	getCustomGitCloneCommand,
-} from "@/server/utils/providers/git";
+} from "@dokploy/server/utils/providers/git";
 import {
+	authGithub,
 	cloneGithubRepository,
 	getGithubCloneCommand,
-} from "@/server/utils/providers/github";
+} from "@dokploy/server/utils/providers/github";
 import {
 	cloneGitlabRepository,
 	getGitlabCloneCommand,
-} from "@/server/utils/providers/gitlab";
-import { createTraefikConfig } from "@/server/utils/traefik/application";
+} from "@dokploy/server/utils/providers/gitlab";
+import { createTraefikConfig } from "@dokploy/server/utils/traefik/application";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { encodeBase64 } from "../utils/docker/utils";
 import { getDokployUrl } from "./admin";
-import { createDeployment, updateDeploymentStatus } from "./deployment";
+import {
+	createDeployment,
+	createDeploymentPreview,
+	updateDeploymentStatus,
+} from "./deployment";
+import { type Domain, getDomainHost } from "./domain";
+import {
+	createPreviewDeploymentComment,
+	getIssueComment,
+	issueCommentExists,
+	updateIssueComment,
+} from "./github";
+import {
+	findPreviewDeploymentById,
+	updatePreviewDeployment,
+} from "./preview-deployment";
 import { validUniqueServerAppName } from "./project";
 export type Application = typeof applications.$inferSelect;
 
 export const createApplication = async (
 	input: typeof apiCreateApplication._type,
 ) => {
-	input.appName =
-		`${input.appName}-${generatePassword(6)}` || generateAppName("app");
-	if (input.appName) {
-		const valid = await validUniqueServerAppName(input.appName);
+	const appName = buildAppName("app", input.appName);
 
-		if (!valid) {
-			throw new TRPCError({
-				code: "CONFLICT",
-				message: "Application with this 'AppName' already exists",
-			});
-		}
+	const valid = await validUniqueServerAppName(appName);
+	if (!valid) {
+		throw new TRPCError({
+			code: "CONFLICT",
+			message: "Application with this 'AppName' already exists",
+		});
 	}
 
 	return await db.transaction(async (tx) => {
@@ -62,6 +78,7 @@ export const createApplication = async (
 			.insert(applications)
 			.values({
 				...input,
+				appName,
 			})
 			.returning()
 			.then((value) => value[0]);
@@ -97,6 +114,7 @@ export const findApplicationById = async (applicationId: string) => {
 			github: true,
 			bitbucket: true,
 			server: true,
+			previewDeployments: true,
 		},
 	});
 	if (!application) {
@@ -120,10 +138,11 @@ export const updateApplication = async (
 	applicationId: string,
 	applicationData: Partial<Application>,
 ) => {
+	const { appName, ...rest } = applicationData;
 	const application = await db
 		.update(applications)
 		.set({
-			...applicationData,
+			...rest,
 		})
 		.where(eq(applications.applicationId, applicationId))
 		.returning();
@@ -165,7 +184,10 @@ export const deployApplication = async ({
 
 	try {
 		if (application.sourceType === "github") {
-			await cloneGithubRepository(application, deployment.logPath);
+			await cloneGithubRepository({
+				...application,
+				logPath: deployment.logPath,
+			});
 			await buildApplication(application, deployment.logPath);
 		} else if (application.sourceType === "gitlab") {
 			await cloneGitlabRepository(application, deployment.logPath);
@@ -190,6 +212,7 @@ export const deployApplication = async ({
 			applicationName: application.name,
 			applicationType: "application",
 			buildLink,
+			adminId: application.project.adminId,
 		});
 	} catch (error) {
 		await updateDeploymentStatus(deployment.deploymentId, "error");
@@ -201,15 +224,8 @@ export const deployApplication = async ({
 			// @ts-ignore
 			errorMessage: error?.message || "Error to build",
 			buildLink,
+			adminId: application.project.adminId,
 		});
-
-		console.log(
-			"Error on ",
-			application.buildType,
-			"/",
-			application.sourceType,
-			error,
-		);
 
 		throw error;
 	}
@@ -279,7 +295,11 @@ export const deployRemoteApplication = async ({
 		if (application.serverId) {
 			let command = "set -e;";
 			if (application.sourceType === "github") {
-				command += await getGithubCloneCommand(application, deployment.logPath);
+				command += await getGithubCloneCommand({
+					...application,
+					serverId: application.serverId,
+					logPath: deployment.logPath,
+				});
 			} else if (application.sourceType === "gitlab") {
 				command += await getGitlabCloneCommand(application, deployment.logPath);
 			} else if (application.sourceType === "bitbucket") {
@@ -311,6 +331,7 @@ export const deployRemoteApplication = async ({
 			applicationName: application.name,
 			applicationType: "application",
 			buildLink,
+			adminId: application.project.adminId,
 		});
 	} catch (error) {
 		// @ts-ignore
@@ -333,6 +354,7 @@ export const deployRemoteApplication = async ({
 			// @ts-ignore
 			errorMessage: error?.message || "Error to build",
 			buildLink,
+			adminId: application.project.adminId,
 		});
 
 		console.log(
@@ -343,6 +365,225 @@ export const deployRemoteApplication = async ({
 			error,
 		);
 
+		throw error;
+	}
+
+	return true;
+};
+
+export const deployPreviewApplication = async ({
+	applicationId,
+	titleLog = "Preview Deployment",
+	descriptionLog = "",
+	previewDeploymentId,
+}: {
+	applicationId: string;
+	titleLog: string;
+	descriptionLog: string;
+	previewDeploymentId: string;
+}) => {
+	const application = await findApplicationById(applicationId);
+	const deployment = await createDeploymentPreview({
+		title: titleLog,
+		description: descriptionLog,
+		previewDeploymentId: previewDeploymentId,
+	});
+
+	const previewDeployment =
+		await findPreviewDeploymentById(previewDeploymentId);
+
+	await updatePreviewDeployment(previewDeploymentId, {
+		createdAt: new Date().toISOString(),
+	});
+
+	const previewDomain = getDomainHost(previewDeployment?.domain as Domain);
+	const issueParams = {
+		owner: application?.owner || "",
+		repository: application?.repository || "",
+		issue_number: previewDeployment.pullRequestNumber,
+		comment_id: Number.parseInt(previewDeployment.pullRequestCommentId),
+		githubId: application?.githubId || "",
+	};
+	try {
+		const commentExists = await issueCommentExists({
+			...issueParams,
+		});
+		if (!commentExists) {
+			const result = await createPreviewDeploymentComment({
+				...issueParams,
+				previewDomain,
+				appName: previewDeployment.appName,
+				githubId: application?.githubId || "",
+				previewDeploymentId,
+			});
+
+			if (!result) {
+				throw new TRPCError({
+					code: "NOT_FOUND",
+					message: "Pull request comment not found",
+				});
+			}
+
+			issueParams.comment_id = Number.parseInt(result?.pullRequestCommentId);
+		}
+		const buildingComment = getIssueComment(
+			application.name,
+			"running",
+			previewDomain,
+		);
+		await updateIssueComment({
+			...issueParams,
+			body: `### Dokploy Preview Deployment\n\n${buildingComment}`,
+		});
+		application.appName = previewDeployment.appName;
+		application.env = application.previewEnv;
+		application.buildArgs = application.previewBuildArgs;
+
+		if (application.sourceType === "github") {
+			await cloneGithubRepository({
+				...application,
+				appName: previewDeployment.appName,
+				branch: previewDeployment.branch,
+				logPath: deployment.logPath,
+			});
+			await buildApplication(application, deployment.logPath);
+		}
+		// 4eef09efc46009187d668cf1c25f768d0bde4f91
+		const successComment = getIssueComment(
+			application.name,
+			"success",
+			previewDomain,
+		);
+		await updateIssueComment({
+			...issueParams,
+			body: `### Dokploy Preview Deployment\n\n${successComment}`,
+		});
+		await updateDeploymentStatus(deployment.deploymentId, "done");
+		await updatePreviewDeployment(previewDeploymentId, {
+			previewStatus: "done",
+		});
+	} catch (error) {
+		const comment = getIssueComment(application.name, "error", previewDomain);
+		await updateIssueComment({
+			...issueParams,
+			body: `### Dokploy Preview Deployment\n\n${comment}`,
+		});
+		await updateDeploymentStatus(deployment.deploymentId, "error");
+		await updatePreviewDeployment(previewDeploymentId, {
+			previewStatus: "error",
+		});
+		throw error;
+	}
+
+	return true;
+};
+
+export const deployRemotePreviewApplication = async ({
+	applicationId,
+	titleLog = "Preview Deployment",
+	descriptionLog = "",
+	previewDeploymentId,
+}: {
+	applicationId: string;
+	titleLog: string;
+	descriptionLog: string;
+	previewDeploymentId: string;
+}) => {
+	const application = await findApplicationById(applicationId);
+	const deployment = await createDeploymentPreview({
+		title: titleLog,
+		description: descriptionLog,
+		previewDeploymentId: previewDeploymentId,
+	});
+
+	const previewDeployment =
+		await findPreviewDeploymentById(previewDeploymentId);
+
+	await updatePreviewDeployment(previewDeploymentId, {
+		createdAt: new Date().toISOString(),
+	});
+
+	const previewDomain = getDomainHost(previewDeployment?.domain as Domain);
+	const issueParams = {
+		owner: application?.owner || "",
+		repository: application?.repository || "",
+		issue_number: previewDeployment.pullRequestNumber,
+		comment_id: Number.parseInt(previewDeployment.pullRequestCommentId),
+		githubId: application?.githubId || "",
+	};
+	try {
+		const commentExists = await issueCommentExists({
+			...issueParams,
+		});
+		if (!commentExists) {
+			const result = await createPreviewDeploymentComment({
+				...issueParams,
+				previewDomain,
+				appName: previewDeployment.appName,
+				githubId: application?.githubId || "",
+				previewDeploymentId,
+			});
+
+			if (!result) {
+				throw new TRPCError({
+					code: "NOT_FOUND",
+					message: "Pull request comment not found",
+				});
+			}
+
+			issueParams.comment_id = Number.parseInt(result?.pullRequestCommentId);
+		}
+		const buildingComment = getIssueComment(
+			application.name,
+			"running",
+			previewDomain,
+		);
+		await updateIssueComment({
+			...issueParams,
+			body: `### Dokploy Preview Deployment\n\n${buildingComment}`,
+		});
+		application.appName = previewDeployment.appName;
+		application.env = application.previewEnv;
+		application.buildArgs = application.previewBuildArgs;
+
+		if (application.serverId) {
+			let command = "set -e;";
+			if (application.sourceType === "github") {
+				command += await getGithubCloneCommand({
+					...application,
+					serverId: application.serverId,
+					logPath: deployment.logPath,
+				});
+			}
+
+			command += getBuildCommand(application, deployment.logPath);
+			await execAsyncRemote(application.serverId, command);
+			await mechanizeDockerContainer(application);
+		}
+
+		const successComment = getIssueComment(
+			application.name,
+			"success",
+			previewDomain,
+		);
+		await updateIssueComment({
+			...issueParams,
+			body: `### Dokploy Preview Deployment\n\n${successComment}`,
+		});
+		await updateDeploymentStatus(deployment.deploymentId, "done");
+		await updatePreviewDeployment(previewDeploymentId, {
+			previewStatus: "done",
+		});
+	} catch (error) {
+		const comment = getIssueComment(application.name, "error", previewDomain);
+		await updateIssueComment({
+			...issueParams,
+			body: `### Dokploy Preview Deployment\n\n${comment}`,
+		});
+		await updateDeploymentStatus(deployment.deploymentId, "error");
+		await updatePreviewDeployment(previewDeploymentId, {
+			previewStatus: "error",
+		});
 		throw error;
 	}
 

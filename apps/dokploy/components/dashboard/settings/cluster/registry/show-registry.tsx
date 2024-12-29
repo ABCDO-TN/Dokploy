@@ -8,7 +8,6 @@ import {
 import { api } from "@/utils/api";
 import { Server } from "lucide-react";
 import { AddRegistry } from "./add-docker-registry";
-import { AddSelfHostedRegistry } from "./add-self-docker-registry";
 import { DeleteRegistry } from "./delete-registry";
 import { UpdateDockerRegistry } from "./update-docker-registry";
 
@@ -29,13 +28,7 @@ export const ShowRegistry = () => {
 					</div>
 
 					<div className="flex flex-row gap-2">
-						{data && data?.length > 0 && (
-							<>
-								{!haveSelfHostedRegistry && <AddSelfHostedRegistry />}
-
-								<AddRegistry />
-							</>
-						)}
+						{data && data?.length > 0 && <AddRegistry />}
 					</div>
 				</CardHeader>
 				<CardContent className="space-y-2 pt-4 h-full">
@@ -47,7 +40,6 @@ export const ShowRegistry = () => {
 							</span>
 
 							<div className="flex flex-row md:flex-row gap-2 flex-wrap w-full justify-center">
-								<AddSelfHostedRegistry />
 								<AddRegistry />
 							</div>
 						</div>

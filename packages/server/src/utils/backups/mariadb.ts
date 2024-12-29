@@ -1,7 +1,7 @@
 import path from "node:path";
-import type { BackupSchedule } from "@/server/services/backup";
-import type { Mariadb } from "@/server/services/mariadb";
-import { findProjectById } from "@/server/services/project";
+import type { BackupSchedule } from "@dokploy/server/services/backup";
+import type { Mariadb } from "@dokploy/server/services/mariadb";
+import { findProjectById } from "@dokploy/server/services/project";
 import {
 	getRemoteServiceContainer,
 	getServiceContainer,
@@ -49,6 +49,7 @@ export const runMariadbBackup = async (
 			projectName: project.name,
 			databaseType: "mariadb",
 			type: "success",
+			adminId: project.adminId,
 		});
 	} catch (error) {
 		console.log(error);
@@ -59,6 +60,7 @@ export const runMariadbBackup = async (
 			type: "error",
 			// @ts-ignore
 			errorMessage: error?.message || "Error message not provided",
+			adminId: project.adminId,
 		});
 		throw error;
 	}

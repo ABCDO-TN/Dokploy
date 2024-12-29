@@ -23,28 +23,50 @@ import { api } from "@/utils/api";
 import { format } from "date-fns";
 import { KeyIcon, MoreHorizontal, ServerIcon } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { toast } from "sonner";
 import { TerminalModal } from "../web-server/terminal-modal";
 import { ShowServerActions } from "./actions/show-server-actions";
 import { AddServer } from "./add-server";
 import { SetupServer } from "./setup-server";
 import { ShowDockerContainersModal } from "./show-docker-containers-modal";
+import { ShowSwarmOverviewModal } from "./show-swarm-overview-modal";
 import { ShowTraefikFileSystemModal } from "./show-traefik-file-system-modal";
 import { UpdateServer } from "./update-server";
+import { WelcomeSuscription } from "./welcome-stripe/welcome-suscription";
 
 export const ShowServers = () => {
+	const router = useRouter();
+	const query = router.query;
 	const { data, refetch } = api.server.all.useQuery();
 	const { mutateAsync } = api.server.remove.useMutation();
 	const { data: sshKeys } = api.sshKey.all.useQuery();
+	const { data: isCloud } = api.settings.isCloud.useQuery();
+	const { data: canCreateMoreServers } =
+		api.stripe.canCreateMoreServers.useQuery();
 
 	return (
 		<div className="p-6 space-y-6">
+			{query?.success && isCloud && <WelcomeSuscription />}
 			<div className="space-y-2 flex flex-row justify-between items-end">
-				<div>
-					<h1 className="text-2xl font-bold">Servers</h1>
-					<p className="text-muted-foreground">
-						Add servers to deploy your applications remotely.
-					</p>
+				<div className="flex flex-col gap-2">
+					<div>
+						<h1 className="text-2xl font-bold">Servers</h1>
+						<p className="text-muted-foreground">
+							Add servers to deploy your applications remotely.
+						</p>
+					</div>
+
+					{isCloud && (
+						<span
+							className="text-primary cursor-pointer text-sm"
+							onClick={() => {
+								router.push("/dashboard/settings/servers?success=true");
+							}}
+						>
+							Reset Onboarding
+						</span>
+					)}
 				</div>
 
 				{sshKeys && sshKeys?.length > 0 && (
@@ -74,19 +96,38 @@ export const ShowServers = () => {
 						<div className="flex flex-col items-center gap-3 min-h-[25vh] justify-center">
 							<ServerIcon className="size-8" />
 							<span className="text-base text-muted-foreground">
-								No Servers found. Add a server to deploy your applications
-								remotely.
+								{!canCreateMoreServers ? (
+									<div>
+										You cannot create more servers,{" "}
+										<Link
+											href="/dashboard/settings/billing"
+											className="text-primary"
+										>
+											Please upgrade your plan
+										</Link>
+									</div>
+								) : (
+									<span>
+										No Servers found. Add a server to deploy your applications
+										remotely.
+									</span>
+								)}
 							</span>
 						</div>
 					)
 				)}
 				{data && data?.length > 0 && (
-					<div className="flex flex-col gap-6">
+					<div className="flex flex-col gap-6 overflow-auto">
 						<Table>
-							<TableCaption>See all servers</TableCaption>
+							<TableCaption>
+								<div className="flex flex-col  gap-4">See all servers</div>
+							</TableCaption>
 							<TableHeader>
 								<TableRow>
 									<TableHead className="w-[100px]">Name</TableHead>
+									{isCloud && (
+										<TableHead className="text-center">Status</TableHead>
+									)}
 									<TableHead className="text-center">IP Address</TableHead>
 									<TableHead className="text-center">Port</TableHead>
 									<TableHead className="text-center">Username</TableHead>
@@ -98,9 +139,23 @@ export const ShowServers = () => {
 							<TableBody>
 								{data?.map((server) => {
 									const canDelete = server.totalSum === 0;
+									const isActive = server.serverStatus === "active";
 									return (
 										<TableRow key={server.serverId}>
 											<TableCell className="w-[100px]">{server.name}</TableCell>
+											{isCloud && (
+												<TableHead className="text-center">
+													<Badge
+														variant={
+															server.serverStatus === "active"
+																? "default"
+																: "destructive"
+														}
+													>
+														{server.serverStatus}
+													</Badge>
+												</TableHead>
+											)}
 											<TableCell className="text-center">
 												<Badge>{server.ipAddress}</Badge>
 											</TableCell>
@@ -131,18 +186,25 @@ export const ShowServers = () => {
 													</DropdownMenuTrigger>
 													<DropdownMenuContent align="end">
 														<DropdownMenuLabel>Actions</DropdownMenuLabel>
-														{server.sshKeyId && (
-															<TerminalModal serverId={server.serverId}>
-																<span>Enter the terminal</span>
-															</TerminalModal>
+
+														{isActive && (
+															<>
+																{server.sshKeyId && (
+																	<TerminalModal serverId={server.serverId}>
+																		<span>Enter the terminal</span>
+																	</TerminalModal>
+																)}
+																<SetupServer serverId={server.serverId} />
+
+																<UpdateServer serverId={server.serverId} />
+																{server.sshKeyId && (
+																	<ShowServerActions
+																		serverId={server.serverId}
+																	/>
+																)}
+															</>
 														)}
 
-														<SetupServer serverId={server.serverId} />
-
-														<UpdateServer serverId={server.serverId} />
-														{server.sshKeyId && (
-															<ShowServerActions serverId={server.serverId} />
-														)}
 														<DialogAction
 															disabled={!canDelete}
 															title={
@@ -187,7 +249,7 @@ export const ShowServers = () => {
 															</DropdownMenuItem>
 														</DialogAction>
 
-														{server.sshKeyId && (
+														{isActive && server.sshKeyId && (
 															<>
 																<DropdownMenuSeparator />
 																<DropdownMenuLabel>Extra</DropdownMenuLabel>
@@ -196,6 +258,9 @@ export const ShowServers = () => {
 																	serverId={server.serverId}
 																/>
 																<ShowDockerContainersModal
+																	serverId={server.serverId}
+																/>
+																<ShowSwarmOverviewModal
 																	serverId={server.serverId}
 																/>
 															</>

@@ -48,6 +48,10 @@ export const auth = pgTable("auth", {
 	createdAt: text("createdAt")
 		.notNull()
 		.$defaultFn(() => new Date().toISOString()),
+	resetPasswordToken: text("resetPasswordToken"),
+	resetPasswordExpiresAt: text("resetPasswordExpiresAt"),
+	confirmationToken: text("confirmationToken"),
+	confirmationExpiresAt: text("confirmationExpiresAt"),
 });
 
 export const authRelations = relations(auth, ({ many }) => ({
@@ -88,6 +92,7 @@ export const apiUpdateAuth = createSchema.partial().extend({
 	email: z.string().nullable(),
 	password: z.string().nullable(),
 	image: z.string().optional(),
+	currentPassword: z.string().nullable(),
 });
 
 export const apiUpdateAuthByAdmin = createSchema.partial().extend({

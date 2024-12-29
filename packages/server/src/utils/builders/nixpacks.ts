@@ -1,6 +1,9 @@
 import { type WriteStream, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { buildStatic, getStaticCommand } from "@/server/utils/builders/static";
+import {
+	buildStatic,
+	getStaticCommand,
+} from "@dokploy/server/utils/builders/static";
 import { nanoid } from "nanoid";
 import type { ApplicationNested } from ".";
 import { prepareEnvironmentVariables } from "../docker/utils";
@@ -11,11 +14,14 @@ export const buildNixpacks = async (
 	application: ApplicationNested,
 	writeStream: WriteStream,
 ) => {
-	const { env, appName, publishDirectory, serverId } = application;
+	const { env, appName, publishDirectory } = application;
 
 	const buildAppDirectory = getBuildAppDirectory(application);
 	const buildContainerId = `${appName}-${nanoid(10)}`;
-	const envVariables = prepareEnvironmentVariables(env);
+	const envVariables = prepareEnvironmentVariables(
+		env,
+		application.project.env,
+	);
 
 	const writeToStream = (data: string) => {
 		if (writeStream.writable) {
@@ -89,7 +95,10 @@ export const getNixpacksCommand = (
 
 	const buildAppDirectory = getBuildAppDirectory(application);
 	const buildContainerId = `${appName}-${nanoid(10)}`;
-	const envVariables = prepareEnvironmentVariables(env);
+	const envVariables = prepareEnvironmentVariables(
+		env,
+		application.project.env,
+	);
 
 	const args = ["build", buildAppDirectory, "--name", appName];
 

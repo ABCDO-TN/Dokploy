@@ -1,16 +1,16 @@
 import { createWriteStream } from "node:fs";
 import { join } from "node:path";
-import { paths } from "@/server/constants";
-import type { InferResultType } from "@/server/types/with";
+import { paths } from "@dokploy/server/constants";
+import type { InferResultType } from "@dokploy/server/types/with";
 import { createAppAuth } from "@octokit/auth-app";
 import { TRPCError } from "@trpc/server";
 import { Octokit } from "octokit";
 import { recreateDirectory } from "../filesystem/directory";
 import { spawnAsync } from "../process/spawnAsync";
 
-import type { apiFindGithubBranches } from "@/server/db/schema";
-import type { Compose } from "@/server/services/compose";
-import { type Github, findGithubById } from "@/server/services/github";
+import type { apiFindGithubBranches } from "@dokploy/server/db/schema";
+import type { Compose } from "@dokploy/server/services/compose";
+import { type Github, findGithubById } from "@dokploy/server/services/github";
 import { execAsyncRemote } from "../process/execAsync";
 
 export const authGithub = (githubProvider: Github): Octokit => {
@@ -74,11 +74,22 @@ export type ApplicationWithGithub = InferResultType<
 >;
 
 export type ComposeWithGithub = InferResultType<"compose", { github: true }>;
-export const cloneGithubRepository = async (
-	entity: ApplicationWithGithub | ComposeWithGithub,
-	logPath: string,
-	isCompose = false,
-) => {
+
+interface CloneGithubRepository {
+	appName: string;
+	owner: string | null;
+	branch: string | null;
+	githubId: string | null;
+	repository: string | null;
+	logPath: string;
+	type?: "application" | "compose";
+}
+export const cloneGithubRepository = async ({
+	logPath,
+	type = "application",
+	...entity
+}: CloneGithubRepository) => {
+	const isCompose = type === "compose";
 	const { APPLICATIONS_PATH, COMPOSE_PATH } = paths();
 	const writeStream = createWriteStream(logPath, { flags: "a" });
 	const { appName, repository, owner, branch, githubId } = entity;
@@ -125,6 +136,7 @@ export const cloneGithubRepository = async (
 				branch!,
 				"--depth",
 				"1",
+				"--recurse-submodules",
 				cloneUrl,
 				outputPath,
 				"--progress",
@@ -144,13 +156,13 @@ export const cloneGithubRepository = async (
 	}
 };
 
-export const getGithubCloneCommand = async (
-	entity: ApplicationWithGithub | ComposeWithGithub,
-	logPath: string,
-	isCompose = false,
-) => {
+export const getGithubCloneCommand = async ({
+	logPath,
+	type = "application",
+	...entity
+}: CloneGithubRepository & { serverId: string }) => {
 	const { appName, repository, owner, branch, githubId, serverId } = entity;
-
+	const isCompose = type === "compose";
 	if (!serverId) {
 		throw new TRPCError({
 			code: "NOT_FOUND",
@@ -204,8 +216,8 @@ export const getGithubCloneCommand = async (
 	const cloneCommand = `
 rm -rf ${outputPath};
 mkdir -p ${outputPath};
-if ! git clone --branch ${branch} --depth 1 --progress ${cloneUrl} ${outputPath} >> ${logPath} 2>&1; then
-	echo "❌ [ERROR] Fallo al clonar el repositorio ${repoclone}" >> ${logPath};
+if ! git clone --branch ${branch} --depth 1 --recurse-submodules --progress ${cloneUrl} ${outputPath} >> ${logPath} 2>&1; then
+	echo "❌ [ERROR] Fail to clone repository ${repoclone}" >> ${logPath};
 	exit 1;
 fi
 echo "Cloned ${repoclone} to ${outputPath}: ✅" >> ${logPath};
@@ -239,6 +251,7 @@ export const cloneRawGithubRepository = async (entity: Compose) => {
 			branch!,
 			"--depth",
 			"1",
+			"--recurse-submodules",
 			cloneUrl,
 			outputPath,
 			"--progress",

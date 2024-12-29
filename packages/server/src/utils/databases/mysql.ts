@@ -1,4 +1,4 @@
-import type { InferResultType } from "@/server/types/with";
+import type { InferResultType } from "@dokploy/server/types/with";
 import type { CreateServiceOptions } from "dockerode";
 import {
 	calculateResources,
@@ -9,7 +9,10 @@ import {
 } from "../docker/utils";
 import { getRemoteDocker } from "../servers/remote-docker";
 
-export type MysqlNested = InferResultType<"mysql", { mounts: true }>;
+export type MysqlNested = InferResultType<
+	"mysql",
+	{ mounts: true; project: true }
+>;
 
 export const buildMysql = async (mysql: MysqlNested) => {
 	const {
@@ -43,7 +46,10 @@ export const buildMysql = async (mysql: MysqlNested) => {
 		cpuLimit,
 		cpuReservation,
 	});
-	const envVariables = prepareEnvironmentVariables(defaultMysqlEnv);
+	const envVariables = prepareEnvironmentVariables(
+		defaultMysqlEnv,
+		mysql.project.env,
+	);
 	const volumesMount = generateVolumeMounts(mounts);
 	const bindsMount = generateBindMounts(mounts);
 	const filesMount = generateFileMounts(appName, mysql);

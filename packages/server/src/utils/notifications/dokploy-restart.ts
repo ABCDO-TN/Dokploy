@@ -1,6 +1,6 @@
-import { db } from "@/server/db";
-import { notifications } from "@/server/db/schema";
-import DokployRestartEmail from "@/server/emails/emails/dokploy-restart";
+import { db } from "@dokploy/server/db";
+import { notifications } from "@dokploy/server/db/schema";
+import DokployRestartEmail from "@dokploy/server/emails/emails/dokploy-restart";
 import { renderAsync } from "@react-email/components";
 import { eq } from "drizzle-orm";
 import {
@@ -12,6 +12,7 @@ import {
 
 export const sendDokployRestartNotifications = async () => {
 	const date = new Date();
+	const unixDate = ~~(Number(date) / 1000);
 	const notificationList = await db.query.notifications.findMany({
 		where: eq(notifications.dokployRestart, true),
 		with: {
@@ -33,13 +34,26 @@ export const sendDokployRestartNotifications = async () => {
 		}
 
 		if (discord) {
+			const decorate = (decoration: string, text: string) =>
+				`${discord.decoration ? decoration : ""} ${text}`.trim();
+
 			await sendDiscordNotification(discord, {
-				title: "✅ Dokploy Server Restarted",
-				color: 0x00ff00,
+				title: decorate(">", "`✅` Dokploy Server Restarted"),
+				color: 0x57f287,
 				fields: [
 					{
-						name: "Time",
-						value: date.toLocaleString(),
+						name: decorate("`📅`", "Date"),
+						value: `<t:${unixDate}:D>`,
+						inline: true,
+					},
+					{
+						name: decorate("`⌚`", "Time"),
+						value: `<t:${unixDate}:t>`,
+						inline: true,
+					},
+					{
+						name: decorate("`❓`", "Type"),
+						value: "Successful",
 						inline: true,
 					},
 				],

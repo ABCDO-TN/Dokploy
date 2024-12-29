@@ -1,8 +1,8 @@
-import { db } from "@/server/db";
-import { notifications } from "@/server/db/schema";
-import BuildFailedEmail from "@/server/emails/emails/build-failed";
+import { db } from "@dokploy/server/db";
+import { notifications } from "@dokploy/server/db/schema";
+import BuildFailedEmail from "@dokploy/server/emails/emails/build-failed";
 import { renderAsync } from "@react-email/components";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
 	sendDiscordNotification,
 	sendEmailNotification,
@@ -16,6 +16,7 @@ interface Props {
 	applicationType: string;
 	errorMessage: string;
 	buildLink: string;
+	adminId: string;
 }
 
 export const sendBuildErrorNotifications = async ({
@@ -24,10 +25,15 @@ export const sendBuildErrorNotifications = async ({
 	applicationType,
 	errorMessage,
 	buildLink,
+	adminId,
 }: Props) => {
 	const date = new Date();
+	const unixDate = ~~(Number(date) / 1000);
 	const notificationList = await db.query.notifications.findMany({
-		where: eq(notifications.appBuildError, true),
+		where: and(
+			eq(notifications.appBuildError, true),
+			eq(notifications.adminId, adminId),
+		),
 		with: {
 			email: true,
 			discord: true,
@@ -53,32 +59,50 @@ export const sendBuildErrorNotifications = async ({
 		}
 
 		if (discord) {
+			const decorate = (decoration: string, text: string) =>
+				`${discord.decoration ? decoration : ""} ${text}`.trim();
+
 			await sendDiscordNotification(discord, {
-				title: "⚠️ Build Failed",
-				color: 0xff0000,
+				title: decorate(">", "`⚠️` Build Failed"),
+				color: 0xed4245,
 				fields: [
 					{
-						name: "Project",
+						name: decorate("`🛠️`", "Project"),
 						value: projectName,
 						inline: true,
 					},
 					{
-						name: "Application",
+						name: decorate("`⚙️`", "Application"),
 						value: applicationName,
 						inline: true,
 					},
 					{
-						name: "Type",
+						name: decorate("`❔`", "Type"),
 						value: applicationType,
 						inline: true,
 					},
 					{
-						name: "Error",
-						value: errorMessage,
+						name: decorate("`📅`", "Date"),
+						value: `<t:${unixDate}:D>`,
+						inline: true,
 					},
 					{
-						name: "Build Link",
-						value: buildLink,
+						name: decorate("`⌚`", "Time"),
+						value: `<t:${unixDate}:t>`,
+						inline: true,
+					},
+					{
+						name: decorate("`❓`", "Type"),
+						value: "Failed",
+						inline: true,
+					},
+					{
+						name: decorate("`⚠️`", "Error Message"),
+						value: `\`\`\`${errorMessage}\`\`\``,
+					},
+					{
+						name: decorate("`🧷`", "Build Link"),
+						value: `[Click here to access build link](${buildLink})`,
 					},
 				],
 				timestamp: date.toISOString(),
@@ -93,15 +117,15 @@ export const sendBuildErrorNotifications = async ({
 				telegram,
 				`
 				<b>⚠️ Build Failed</b>
-				
+
 				<b>Project:</b> ${projectName}
 				<b>Application:</b> ${applicationName}
 				<b>Type:</b> ${applicationType}
 				<b>Time:</b> ${date.toLocaleString()}
-				
+
 				<b>Error:</b>
 				<pre>${errorMessage}</pre>
-				
+
 				<b>Build Details:</b> ${buildLink}
 				`,
 			);

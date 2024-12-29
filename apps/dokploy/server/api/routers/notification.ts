@@ -148,12 +148,6 @@ export const notificationRouter = createTRPCRouter({
 		.input(apiCreateDiscord)
 		.mutation(async ({ input, ctx }) => {
 			try {
-				// go to your discord server
-				// go to settings
-				// go to integrations
-				// add a new integration
-				// select webhook
-				// copy the webhook url
 				return await createDiscordNotification(input, ctx.user.adminId);
 			} catch (error) {
 				throw new TRPCError({
@@ -193,10 +187,15 @@ export const notificationRouter = createTRPCRouter({
 		.input(apiTestDiscordConnection)
 		.mutation(async ({ input }) => {
 			try {
+				const decorate = (decoration: string, text: string) =>
+					`${input.decoration ? decoration : ""} ${text}`.trim();
+
 				await sendDiscordNotification(input, {
-					title: "Test Notification",
-					description: "Hi, From Dokploy 👋",
+					title: decorate(">", "`🤚` - Test Notification"),
+					description: decorate(">", "Hi, From Dokploy 👋"),
+					color: 0xf3f7f4,
 				});
+
 				return true;
 			} catch (error) {
 				throw new TRPCError({
